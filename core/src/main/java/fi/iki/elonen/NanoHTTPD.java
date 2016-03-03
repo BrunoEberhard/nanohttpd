@@ -72,14 +72,18 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.Enumeration;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Properties;
+import java.util.Set;
 import java.util.StringTokenizer;
 import java.util.TimeZone;
+import java.util.Timer;
+import java.util.TimerTask;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Matcher;
@@ -387,6 +391,13 @@ public abstract class NanoHTTPD {
      */
     public static class DefaultTempFile implements TempFile {
 
+    	private static Set<File> undeletedFiles = Collections.synchronizedSet(new HashSet<File>());
+    	
+    	static {
+    		Timer timer = new Timer(true);
+    		timer.schedule(new DeleteTempFileTask(), 10*1000, 5*1000);
+    	}
+    	
         private final File file;
 
         private final OutputStream fstream;
@@ -399,9 +410,7 @@ public abstract class NanoHTTPD {
         @Override
         public void delete() throws Exception {
             safeClose(this.fstream);
-            if (!this.file.delete()) {
-                throw new Exception("could not delete temporary file");
-            }
+            undeletedFiles.add(file);
         }
 
         @Override
@@ -412,6 +421,20 @@ public abstract class NanoHTTPD {
         @Override
         public OutputStream open() throws Exception {
             return this.fstream;
+        }
+        
+        private static class DeleteTempFileTask extends TimerTask {
+        	@Override
+			public void run() {
+	            System.gc();
+	            Iterator<File> fileIterator = undeletedFiles.iterator();
+	            while (fileIterator.hasNext()) {
+	            	File file = fileIterator.next();
+	            	if (file.delete()) {
+	            		fileIterator.remove();
+	            	}
+	            }
+			}
         }
     }
 
